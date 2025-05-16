@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tic Tac Toe</title>
+  <style>
+    #board { display: grid; grid-template-columns: repeat(3, 100px); width: 300px; margin: 20px auto; }
+    .cell { width: 100px; height: 100px; border: 1px solid #000; font-size: 2em; display: flex; align-items: center; justify-content: center; cursor: pointer; }
+    .hidden { display: none; }
+    .center { text-align: center; }
+    .modal { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #fff; border: 1px solid #000; padding: 20px; z-index: 10; }
+  </style>
+</head>
+<body>
+  <div id="landing" class="center">
+    <h1>Welcome to Tic Tac Toe</h1>
+    <button onclick="showModeSelection()">Start Game</button>
+  </div>
+
+  <div id="mode-selection" class="center hidden">
+    <h2>Choose your opponent:</h2>
+    <button onclick="startGame('player')">Play with another player</button>
+    <button onclick="startGame('computer')">Play against computer</button>
+  </div>
+
+  <div id="game" class="hidden">
+    <div id="status" class="center"></div>
+    <div id="board"></div>
+  </div>
+
+  <div id="end-modal" class="modal hidden">
+    <h2 id="result"></h2>
+    <button onclick="restartGame()">Restart</button>
+    <button onclick="backToMenu()">Back to Menu</button>
+  </div>
+
+  <script>
+    let gameId = null;
+    let player = 'X';
+    let mode = null;
+
+    function showModeSelection() {
+      document.getElementById('landing').classList.add('hidden');
+      document.getElementById('mode-selection').classList.remove('hidden');
+    }
+
+    async function startGame(selectedMode) {
+      mode = selectedMode;
+      const res = await fetch('http://localhost:3002/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode })
+      });
+      const data = await res.json();
+      gameId = data.gameId;
+      player = 'X';
+      document.getElementById('mode-selection').classList.add('hidden');
+      document.getElementById('game').classList.remove('hidden');
+      document.getElementById('status').textContent = `Your turn: ${player}`;
+      drawBoard(data.board);
+    }
+
+    function drawBoard(board) {
+      const boardDiv = document.getElementById('board');
+      boardDiv.innerHTML = '';
+      board.forEach((cell, i) => {
+        const div = document.createElement('div');
+        div.className = 'cell';
+        div.textContent = cell || '';
+        div.onclick = () => makeMove(i);
+        boardDiv.appendChild(div);
+      });
+    }
+
+    async function makeMove(index) {
+      const res = await fetch('http://localhost:3002/move', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ gameId, index, player })
+      });
+
+      const data = await res.json();
+      if (data.error) {
+        alert(data.error);
+        return;
+      }
+
+      drawBoard(data.board);
+
+      if (data.winner) {
+        showEndModal(data.winner === 'Draw' ? "It's a Draw!" : `Winner: ${data.winner}`);
+      } else {
+        player = data.nextPlayer;
+        document.getElementById('status').textContent = `Next turn: ${player}`;
+      }
+    }
+
+    function showEndModal(message) {
+      document.getElementById('result').textContent = message;
+      document.getElementById('end-modal').classList.remove('hidden');
+    }
+
+    function restartGame() {
+      document.getElementById('end-modal').classList.add('hidden');
+      startGame(mode);
+    }
+
+    function backToMenu() {
+      document.getElementById('end-modal').classList.add('hidden');
+      document.getElementById('game').classList.add('hidden');
+      document.getElementById('landing').classList.remove('hidden');
+    }
+  </script>
+</body>
+</html>
