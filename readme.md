@@ -91,7 +91,7 @@ Take any available cell
 
 
 
-# Three Men's Morris
+# Three Men's Morris #
 
 A classic strategy board game for two players, implemented as a web application with a client-server architecture.
 
