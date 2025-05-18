@@ -213,3 +213,192 @@ project-root/
 Enjoy playing Three Men's Morris!
 
 ```
+
+
+# Chess Game Documentation ♟️
+
+## Overview
+A complete chess implementation with two-player and AI modes, featuring move validation, check detection, and three difficulty levels. This single-page application uses vanilla JavaScript with drag-and-drop functionality.
+
+## Core Functions
+
+### 1. Game Initialization
+```javascript
+function startGame()
+Purpose: Transitions from mode selection to game screen
+Flow:
+Hides mode buttons
+Shows game board
+Calls resetGame()
+javascript
+function resetGame()
+Reset Process:
+Clears board state
+Reinitializes:
+boardSquaresArray (2D game state)
+moveHistory (undo stack)
+Turn system (isWhiteTurn)
+Rebuilds DOM elements
+2. Board Setup
+
+javascript
+function createChessBoard()
+DOM Creation:
+Generates 8x8 grid with coordinates
+Alternates square colors
+Sets IDs (a1-h8 format)
+javascript
+function setupPieces()
+Initialization:
+Places 32 pieces in starting positions
+Uses getPieceImagePath() for SVG paths
+Sets drag event listeners
+3. Drag & Drop System
+
+javascript
+function drag(ev)
+Validation:
+Turn verification
+Computer turn blocking
+Highlights legal moves via getPossibleMoves()
+javascript
+function drop(ev)
+Move Execution:
+Validates against precomputed legal moves
+Calls executeMove()
+Handles AI turn triggering
+4. Move Processing
+
+javascript
+function executeMove(start, end, piece)
+Critical Actions:
+King position tracking
+Piece capture handling
+Pawn promotion detection
+Turn switching
+Checkmate verification
+javascript
+function getPossibleMoves()
+Piece-Specific Delegation:
+javascript
+getPawnMoves()    // Includes en passant skeleton
+getKnightMoves()   // L-shaped patterns
+getBishopMoves()   // Diagonal sliding
+getRookMoves()     // Straight sliding 
+getQueenMoves()    // Combined bishop+rook
+getKingMoves()     // 1-square moves (castling TODO)
+5. Game State Management
+
+javascript
+function saveGameState()
+Undo System:
+Snapshots:
+Board array
+Turn state
+King positions
+Stores in moveHistory stack
+javascript
+function updateGameStatus()
+Real-Time Updates:
+Turn indicator
+Check detection via isKingInCheck()
+King square highlighting
+6. AI System
+
+javascript
+function makeComputerMove()
+Difficulty Flow:
+Easy: Random valid moves
+Medium: Prioritizes captures/checks
+Hard: Board evaluation with:
+javascript
+evaluateBoard() // Material + position analysis
+getPositionBonus() // Piece-specific positioning
+javascript
+function chooseBestMove()
+Minimax-like Approach:
+Simulates all possible moves
+Scores resulting positions
+Selects highest-scoring move
+Key Algorithms
+
+Check Detection
+
+javascript
+function isKingInCheck()
+Process:
+Identify opponent pieces
+Calculate their attack paths
+Verify king square in attack paths
+Move Validation
+
+javascript
+function isMoveValidAgainstCheck()
+Safety Check:
+Board state simulation
+King position tracking
+Check verification post-move
+Data Structures
+
+Board Representation
+
+javascript
+boardSquaresArray = [
+  {
+    squareId: "a1",
+    pieceColor: "white",
+    pieceType: "rook",
+    pieceId: "rook-a1"
+  },
+  // ...63 elements
+]
+Move History
+
+javascript
+moveHistory = [
+  {
+    boardState: [...],
+    isWhiteTurn: true,
+    whiteKingSquare: "e1",
+    blackKingSquare: "e8"
+  }
+]
+UI Components
+
+Visual Features
+
+Highlight System:
+css
+.highlight { background: rgba(255,253,120,0.5) }
+.check { background: rgba(255,0,0,0.3) }
+Responsive Design:
+Flexbox layout
+Viewport scaling
+Mobile-optimized coordinates
+Alert System
+
+javascript
+function showAlert()
+Features:
+Centered positioning
+3-second timeout
+Checkmate notifications
+Limitations & TODOs
+
+Missing Features:
+Castling
+En passant
+Draw conditions
+Pawn promotion choice
+Optimization Targets:
+Move generation efficiency
+AI depth limitations
+Board state cloning
+Execution Flow
+
+Initialization:
+createChessBoard() → setupPieces() → fillBoardSquaresArray()
+Player Move:
+drag() → drop() → executeMove() → checkForCheckMate()
+AI Move:
+makeComputerMove() → evaluateBoard() → executeMove(
