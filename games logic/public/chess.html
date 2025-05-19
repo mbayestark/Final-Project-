@@ -811,20 +811,17 @@
         // Finally, just choose a random move
         return chooseRandomMove(moves);
       }
-      
       function chooseBestMove(moves) {
         // Hard difficulty: Evaluate board position after each move
         let bestScore = -Infinity;
         let bestMoves = [];
         
         moves.forEach(move => {
-          // Make a copy of the board to simulate the move
+          // Copy the full board state
           const boardCopy = JSON.parse(JSON.stringify(boardSquaresArray));
-          
-          // Simulate the move
+          // Simulate the move on that copy
           updateBoardSquaresArray(move.startSquare, move.endSquare, boardCopy);
-          
-          // Evaluate the position
+          // Evaluate with the updated evaluateBoard
           const score = evaluateBoard(boardCopy);
           
           if (score > bestScore) {
@@ -850,24 +847,35 @@
           }
         });
         
-        // Piece positioning
+        // Piece positioning (now passing board into getPositionBonus)
         board.forEach(square => {
           if (square.pieceColor === "black") {
-            score += getPositionBonus(square.pieceType, square.squareId, "black");
+            score += getPositionBonus(
+              square.pieceType,
+              square.squareId,
+              "black",
+              board
+            );
           } else if (square.pieceColor === "white") {
-            score -= getPositionBonus(square.pieceType, square.squareId, "white");
+            score -= getPositionBonus(
+              square.pieceType,
+              square.squareId,
+              "white",
+              board
+            );
           }
         });
-if (isKingInCheck(blackKingSquare, "black", board)) {
-        score -= 50; // Penalize if black king is in check
+
+        // Penalize or reward checks
+        if (isKingInCheck(blackKingSquare, "black", board)) {
+          score -= 50;
+        }
+        if (isKingInCheck(whiteKingSquare, "white", board)) {
+          score += 50;
+        }
+        
+        return score;
       }
-      
-      if (isKingInCheck(whiteKingSquare, "white", board)) {
-        score += 50; // Reward if white king is in check
-      }
-      
-      return score;
-    }
     
     function getPieceValue(pieceType) {
       switch (pieceType) {
@@ -882,72 +890,52 @@ if (isKingInCheck(blackKingSquare, "black", board)) {
     }
     
     function getPositionBonus(pieceType, squareId, color, boardArray) {
-      // Convert square ID to coordinates
-      const file = squareId.charCodeAt(0) - 97; // 'a' is 97
-      const rank = parseInt(squareId.charAt(1));
+  // Convert square ID to 0-based file & 1–8 rank
+  const file = squareId.charCodeAt(0) - 97;
+  const rank = parseInt(squareId.charAt(1), 10);
+  const adjustedRank = color === "white" ? rank : 9 - rank;
+  
+  let bonus = 0;
+  
+  switch (pieceType) {
+    case "pawn":
+      bonus = (adjustedRank - 2) * 2;
+      if (file === 3 || file === 4) bonus += 2;
+      break;
       
-      // Adjust rank for color perspective
-      const adjustedRank = color === "white" ? rank : 9 - rank;
+    case "knight":
+      bonus = 5 - Math.abs(3.5 - file) - Math.abs(3.5 - adjustedRank);
+      break;
       
-      let bonus = 0;
+    case "bishop":
+      bonus = Math.abs(file - adjustedRank);
+      break;
       
-      switch (pieceType) {
-        case "pawn":
-          // Pawns are more valuable as they advance
-          bonus = (adjustedRank - 2) * 2;
-          
-          // Center control bonus
-          if (file === 3 || file === 4) {
-            bonus += 2;
-          }
-          break;
-          
-        case "knight":
-          // Knights are better in the center
-          bonus = 5 - Math.abs(3.5 - file) - Math.abs(3.5 - adjustedRank);
-          break;
-          
-        case "bishop":
-          // Bishops are better on long diagonals
-          bonus = Math.abs(file - adjustedRank);
-          break;
-          
-        case "rook":
-          // Rooks are better on open files
-          const fileEmpty = (boardCheck) => {
-            for (let r = 1; r <= 8; r++) {
-              const squareId = String.fromCharCode(97 + file) + r;
-              const square = boardCheck.find(sq => sq.squareId === squareId);
-              if (square.pieceType === "pawn") {
-                return false;
-              }
-            }
-            return true;
-          };
-          
-          if (fileEmpty(boardArray)) {
-            bonus = 5;
-          }
-          
-          // Rooks are better on the 7th rank
-          if (adjustedRank === 7) {
-            bonus += 5;
-          }
-          break;
-          
-        case "queen":
-          // Queens are slightly better in the center
-          bonus = 3 - Math.abs(3.5 - file) - Math.abs(3.5 - adjustedRank);
-          break;
-          
-        case "king":
-          // Kings are safer near the edges in the midgame
-          bonus = Math.abs(3.5 - file) + Math.abs(3.5 - adjustedRank);
-          break;
-      }
+    case "rook":
+      // Rooks gain bonus on open files
+      const fileEmpty = () => {
+        for (let r = 1; r <= 8; r++) {
+          const id = String.fromCharCode(97 + file) + r;
+          const sq = boardArray.find(sq => sq.squareId === id);
+          if (sq.pieceType === "pawn") return false;
+        }
+        return true;
+      };
+      if (fileEmpty()) bonus += 5;
+      if (adjustedRank === 7) bonus += 5;
+      break;
       
-      return bonus;
-    }
+    case "queen":
+      bonus = 3 - Math.abs(3.5 - file) - Math.abs(3.5 - adjustedRank);
+      break;
+      
+    case "king":
+      bonus = Math.abs(3.5 - file) + Math.abs(3.5 - adjustedRank);
+      break;
+  }
+  
+  return bonus;
+}
     
     // Chess Logic Functions
     function updateBoardSquaresArray(startingSquareId, destinationSquareId, boardArray) {
