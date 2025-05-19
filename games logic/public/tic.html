@@ -1,9 +1,10 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Tic Tac Toe</title>
+  <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
   <style>
     #board { display: grid; grid-template-columns: repeat(3, 100px); width: 300px; margin: 20px auto; }
     .cell { width: 100px; height: 100px; border: 1px solid #000; font-size: 2em; display: flex; align-items: center; justify-content: center; cursor: pointer; }
@@ -20,8 +21,9 @@
 
   <div id="mode-selection" class="center hidden">
     <h2>Choose your opponent:</h2>
-    <button onclick="startGame('player')">Play with another player</button>
-    <button onclick="startGame('computer')">Play against computer</button>
+    <button onclick="startGame('local')">Local Player vs Player</button>
+    <button onclick="startGame('computer')">Play against Computer</button>
+    <button onclick="startOnlineGame()">Play Online</button>
   </div>
 
   <div id="game" class="hidden">
@@ -39,6 +41,8 @@
     let gameId = null;
     let player = 'X';
     let mode = null;
+    let socket = null;
+    let onlineMark = null;
 
     function showModeSelection() {
       document.getElementById('landing').classList.add('hidden');
@@ -61,6 +65,33 @@
       drawBoard(data.board);
     }
 
+    function startOnlineGame() {
+      mode = 'online';
+      socket = io('http://localhost:3002');
+
+      socket.emit('joinOnlineGame');
+
+      socket.on('startOnlineGame', ({ gameId: id, mark }) => {
+        gameId = id;
+        onlineMark = mark;
+        player = mark;
+        document.getElementById('mode-selection').classList.add('hidden');
+        document.getElementById('game').classList.remove('hidden');
+        document.getElementById('status').textContent = `You are '${mark}'. Waiting for your turn...`;
+        drawBoard(Array(9).fill(null));
+      });
+
+      socket.on('updateOnlineGame', ({ board, winner, currentPlayer }) => {
+        drawBoard(board);
+        if (winner) {
+          showEndModal(winner === 'Draw' ? "It's a Draw!" : `Winner: ${winner}`);
+        } else {
+          const status = currentPlayer === onlineMark ? "Your turn" : "Opponent's turn";
+          document.getElementById('status').textContent = status;
+        }
+      });
+    }
+
     function drawBoard(board) {
       const boardDiv = document.getElementById('board');
       boardDiv.innerHTML = '';
@@ -68,12 +99,22 @@
         const div = document.createElement('div');
         div.className = 'cell';
         div.textContent = cell || '';
-        div.onclick = () => makeMove(i);
+        div.onclick = () => handleCellClick(i, cell);
         boardDiv.appendChild(div);
       });
     }
 
-    async function makeMove(index) {
+    function handleCellClick(index, cellContent) {
+      if (cellContent) return;
+
+      if (mode === 'online') {
+        socket.emit('makeOnlineMove', { gameId, index, player: onlineMark });
+      } else {
+        makeLocalMove(index);
+      }
+    }
+
+    async function makeLocalMove(index) {
       const res = await fetch('http://localhost:3002/move', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -103,10 +144,15 @@
 
     function restartGame() {
       document.getElementById('end-modal').classList.add('hidden');
-      startGame(mode);
+      if (mode === 'online') {
+        location.reload(); // Simplest way to re-init socket + board
+      } else {
+        startGame(mode);
+      }
     }
 
     function backToMenu() {
+      if (socket) socket.disconnect();
       document.getElementById('end-modal').classList.add('hidden');
       document.getElementById('game').classList.add('hidden');
       document.getElementById('landing').classList.remove('hidden');
