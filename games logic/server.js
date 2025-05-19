@@ -41,6 +41,11 @@ const logger = winston.createLogger({
 
 // Error handling for uncaught exceptions
 process.on('uncaughtException', (error) => {
+  if (error.code === 'EADDRINUSE') {
+    logger.error(`Port ${PORT} is already in use. Please try a different port or stop the process using this port.`);
+    logger.info('You can set a different port using: PORT=<port_number> node server.js');
+    process.exit(1);
+  }
   logger.error('Uncaught Exception:', error);
   process.exit(1);
 });
@@ -325,4 +330,19 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: 'Internal server error' });
 });
 
-server.listen(PORT, () => logger.info(`Server running on http://localhost:${PORT}`));
+// Start server with error handling
+server.listen(PORT, () => {
+  logger.info(`Server running on http://localhost:${PORT}`);
+}).on('error', (error) => {
+  if (error.code === 'EADDRINUSE') {
+    logger.error(`Port ${error.port} is already in use. Please try a different port or stop the process using this port.`);
+    logger.info('You can set a different port using: PORT=<port_number> node server.js');
+    process.exit(1);
+  } else {
+    logger.error('Server error:', error);
+    process.exit(1);
+  }
+});
+
+// Remove any console.log statements
+console.log = () => {};
