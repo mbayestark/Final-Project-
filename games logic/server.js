@@ -9,6 +9,7 @@ const path = require('path');
 // Import game modules
 const ticTacToe = require('./tic');
 const threeMens = require('./3p');
+const chess = require('./chess');
 
 // Configure Winston logger
 const logger = winston.createLogger({
@@ -65,7 +66,6 @@ const io = new Server(server, {
   pingInterval: 25000
 });
 
-const PORT = process.env.PORT || 3002;
 
 // Middleware
 app.use(cors());
@@ -75,11 +75,13 @@ app.use(express.static('public'));
 // In-memory game storage
 const games = {
   tictactoe: {},
-  threemens: {}
+  threemens: {},
+  chess: {}
 };
 let waitingPlayers = {
   tictactoe: null,
-  threemens: null
+  threemens: null,
+  chess: null
 };
 
 // Game cleanup interval (every 30 minutes)
@@ -149,6 +151,43 @@ app.post('/start3', (req, res) => {
   } catch (error) {
     logger.error('Error starting Three Men\'s Morris game:', error);
     res.status(500).json({ error: 'Failed to start game' });
+  }
+});
+
+// Chess Routes
+app.post('/startChess', (req, res) => {
+  try {
+    const gameId = uuidv4();
+    const { vsComputer, computerDifficulty } = req.body;
+    
+    logger.info('Starting new Chess game', { gameId, vsComputer, computerDifficulty });
+    
+    games.chess[gameId] = chess.createGame(vsComputer, computerDifficulty);
+    res.json({ gameId, game: games.chess[gameId] });
+  } catch (error) {
+    logger.error('Error starting Chess game:', error);
+    res.status(500).json({ error: 'Failed to start game' });
+  }
+});
+
+app.post('/moveChess', (req, res) => {
+  try {
+    const { gameId, fromPos, toPos } = req.body;
+    const game = games.chess[gameId];
+    
+    if (!game) {
+      return res.status(404).json({ error: 'Game not found' });
+    }
+
+    const result = chess.makeMove(game, fromPos, toPos);
+    if (result.error) {
+      return res.status(400).json({ error: result.error });
+    }
+
+    res.json(result.game);
+  } catch (error) {
+    logger.error('Error making Chess move:', error);
+    res.status(500).json({ error: 'Failed to make move' });
   }
 });
 
@@ -286,6 +325,51 @@ io.on('connection', socket => {
     }
   });
 
+  // Chess online game handling
+  socket.on('joinOnlineChess', () => {
+    try {
+      if (waitingPlayers.chess) {
+        const gameId = uuidv4();
+        const game = chess.createGame(false);
+        game.players = {
+          white: waitingPlayers.chess,
+          black: socket
+        };
+        
+        games.chess[gameId] = game;
+
+        waitingPlayers.chess.emit('startOnlineChess', { gameId, color: 'white' });
+        socket.emit('startOnlineChess', { gameId, color: 'black' });
+        waitingPlayers.chess = null;
+      } else {
+        waitingPlayers.chess = socket;
+      }
+    } catch (error) {
+      logger.error('Error in joinOnlineChess:', error);
+      socket.emit('error', { message: 'Failed to join game' });
+    }
+  });
+
+  socket.on('makeOnlineChessMove', ({ gameId, fromPos, toPos }) => {
+    try {
+      const game = games.chess[gameId];
+      if (!game || !game.players) {
+        return;
+      }
+
+      const result = chess.makeMove(game, fromPos, toPos);
+      if (result.error) {
+        return;
+      }
+
+      game.players.white.emit('updateOnlineChess', result.game);
+      game.players.black.emit('updateOnlineChess', result.game);
+    } catch (error) {
+      logger.error('Error in makeOnlineChessMove:', error);
+      socket.emit('error', { message: 'Failed to make move' });
+    }
+  });
+
   socket.on('disconnect', () => {
     try {
       logger.info('Client disconnected', { socketId: socket.id });
@@ -331,6 +415,7 @@ app.use((err, req, res, next) => {
 });
 
 // Start server with error handling
+const PORT = process.env.PORT || 3002;
 server.listen(PORT, () => {
   logger.info(`Server running on http://localhost:${PORT}`);
 }).on('error', (error) => {
