@@ -1,0 +1,134 @@
+<!-- public/index.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Game Hub</title>
+    <style>
+        body {
+            font-family: 'Arial', sans-serif;
+            margin: 0;
+            padding: 0;
+            min-height: 100vh;
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            color: white;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 3rem;
+        }
+
+        h1 {
+            font-size: 3rem;
+            margin-bottom: 1rem;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+        }
+
+        .subtitle {
+            font-size: 1.2rem;
+            color: #e0e0e0;
+            margin-bottom: 2rem;
+        }
+
+        .games-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 2rem;
+            padding: 1rem;
+        }
+
+        .game-card {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 15px;
+            padding: 2rem;
+            text-align: center;
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+            cursor: pointer;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .game-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.2);
+        }
+
+        .game-card h2 {
+            font-size: 1.8rem;
+            margin-bottom: 1rem;
+            color: #fff;
+        }
+
+        .game-card p {
+            color: #e0e0e0;
+            margin-bottom: 1.5rem;
+            line-height: 1.6;
+        }
+
+        .game-card img {
+            width: 150px;
+            height: 150px;
+            margin-bottom: 1rem;
+            border-radius: 10px;
+        }
+
+        .play-button {
+            background: #4CAF50;
+            color: white;
+            border: none;
+            padding: 12px 30px;
+            border-radius: 25px;
+            font-size: 1.1rem;
+            cursor: pointer;
+            transition: background 0.3s ease;
+            text-decoration: none;
+            display: inline-block;
+        }
+
+        .play-button:hover {
+            background: #45a049;
+        }
+
+        .footer {
+            text-align: center;
+            margin-top: 3rem;
+            padding: 1rem;
+            color: #e0e0e0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Game Hub</h1>
+            <p class="subtitle">Choose your game and start playing!</p>
+        </header>
+
+        <div class="games-grid">
+            <div class="game-card" onclick="window.location.href='tic.html'">
+                <h2>Tic Tac Toe</h2>
+                <p>A classic game of X's and O's. Play against a friend or challenge the computer!</p>
+                <a href="tic.html" class="play-button">Play Now</a>
+            </div>
+
+            <div class="game-card" onclick="window.location.href='3p.html'">
+                <h2>Three Men's Morris</h2>
+                <p>An ancient strategy game. Place your pieces and try to get three in a row!</p>
+                <a href="3p.html" class="play-button">Play Now</a>
+            </div>
+        </div>
+
+        <footer class="footer">
+            <p>© 2024 Game Hub. All rights reserved.</p>
+        </footer>
+    </div>
+</body>
+</html>
