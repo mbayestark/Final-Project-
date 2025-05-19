@@ -1,24 +1,132 @@
+// server.js
 const path = require('path');
 const express = require('express');
 const cors = require('cors');
+const http = require('http');
+const { Server } = require('socket.io');
+const { v4: uuidv4 } = require('uuid');
+
 const app = express();
+const server = http.createServer(app);
+const io = new Server(server, {
+  cors: {
+    origin: '*'
+  }
+});
 
 app.use(cors());
 app.use(express.json());
-app.use(express.static(path.join(__dirname, 'public')));  // 'public' is the directory where your HTML and assets are
+app.use(express.static(path.join(__dirname, 'public')));
 
 let games = {};
+let waitingPlayer = null;
 
-app.post('/start', (req, res) => {
-  const mode = req.body.mode || 'player';
-  const id = Date.now().toString();
-  games[id] = {
+// Game constants
+const WIN_PATTERNS = [
+  [0, 1, 2], [3, 4, 5], [6, 7, 8], // Rows
+  [0, 3, 6], [1, 4, 7], [2, 5, 8], // Columns
+  [0, 4, 8], [2, 4, 6]             // Diagonals
+];
+
+// Game logic functions
+function checkWinner(board) {
+  for (const pattern of WIN_PATTERNS) {
+    const [a, b, c] = pattern;
+    if (board[a] && board[a] === board[b] && board[a] === board[c]) {
+      return board[a];
+    }
+  }
+  return board.includes(null) ? null : 'Draw';
+}
+
+function getBestMove(board, player) {
+  const opponent = player === 'X' ? 'O' : 'X';
+  
+  // Try to win
+  for (let i = 0; i < 9; i++) {
+    if (!board[i]) {
+      board[i] = player;
+      if (checkWinner(board) === player) {
+        board[i] = null;
+        return i;
+      }
+      board[i] = null;
+    }
+  }
+  
+  // Block opponent
+  for (let i = 0; i < 9; i++) {
+    if (!board[i]) {
+      board[i] = opponent;
+      if (checkWinner(board) === opponent) {
+        board[i] = null;
+        return i;
+      }
+      board[i] = null;
+    }
+  }
+  
+  // Take center
+  if (!board[4]) return 4;
+  
+  // Take corners
+  const corners = [0, 2, 6, 8];
+  for (let i of corners) {
+    if (!board[i]) return i;
+  }
+  
+  // Take any available space
+  return board.findIndex(cell => cell === null);
+}
+
+// Game state management
+function createGame(vsComputer = false, computerDifficulty = 'medium') {
+  return {
     board: Array(9).fill(null),
     currentPlayer: 'X',
     winner: null,
-    gameMode: mode
+    vsComputer,
+    computerDifficulty,
+    lastActivity: Date.now(),
+    createdAt: Date.now()
   };
-  res.json({ gameId: id, board: games[id].board });
+}
+
+function makeMove(game, position, player) {
+  if (game.board[position] !== null || game.winner || game.currentPlayer !== player) {
+    return { error: 'Invalid move' };
+  }
+
+  game.board[position] = player;
+  game.winner = checkWinner(game.board);
+  game.currentPlayer = player === 'X' ? 'O' : 'X';
+  game.lastActivity = Date.now();
+
+  if (game.vsComputer && !game.winner && game.currentPlayer === 'O') {
+    const compMove = getBestMove(game.board, 'O');
+    game.board[compMove] = 'O';
+    game.winner = checkWinner(game.board);
+    game.currentPlayer = 'X';
+  }
+
+  return { game };
+}
+
+app.post('/start', (req, res) => {
+  const mode = req.body.mode;
+  const id = Date.now().toString();
+
+  if (mode === 'computer' || mode === 'local') {
+    games[id] = {
+      board: Array(9).fill(null),
+      currentPlayer: 'X',
+      winner: null,
+      gameMode: mode
+    };
+    res.json({ gameId: id, board: games[id].board });
+  } else {
+    res.json({ message: 'Use WebSocket to start online mode' });
+  }
 });
 
 app.post('/move', (req, res) => {
@@ -33,7 +141,6 @@ app.post('/move', (req, res) => {
   game.winner = checkWinner(game.board);
   game.currentPlayer = player === 'X' ? 'O' : 'X';
 
-  // Computer move if applicable
   if (game.gameMode === 'computer' && !game.winner && game.currentPlayer === 'O') {
     const compMove = getBestMove(game.board, 'O');
     game.board[compMove] = 'O';
@@ -44,59 +151,59 @@ app.post('/move', (req, res) => {
   res.json({ board: game.board, winner: game.winner, nextPlayer: game.currentPlayer });
 });
 
-function checkWinner(board) {
-  const lines = [
-    [0,1,2], [3,4,5], [6,7,8],
-    [0,3,6], [1,4,7], [2,5,8],
-    [0,4,8], [2,4,6]
-  ];
-  for (let [a,b,c] of lines) {
-    if (board[a] && board[a] === board[b] && board[a] === board[c]) {
-      return board[a];
+io.on('connection', socket => {
+  socket.on('joinOnlineGame', () => {
+    if (waitingPlayer) {
+      const gameId = Date.now().toString();
+      games[gameId] = {
+        board: Array(9).fill(null),
+        currentPlayer: 'X',
+        winner: null,
+        players: {
+          X: waitingPlayer,
+          O: socket
+        }
+      };
+
+      waitingPlayer.emit('startOnlineGame', { gameId, mark: 'X' });
+      socket.emit('startOnlineGame', { gameId, mark: 'O' });
+      waitingPlayer = null;
+    } else {
+      waitingPlayer = socket;
     }
-  }
-  return board.includes(null) ? null : 'Draw';
-}
+  });
 
-function getBestMove(board, player) {
-  const opponent = player === 'X' ? 'O' : 'X';
+  socket.on('makeOnlineMove', ({ gameId, index, player }) => {
+    const game = games[gameId];
+    if (!game || game.board[index] !== null || game.winner || game.currentPlayer !== player) return;
 
-  // 1. Win if possible
-  for (let i = 0; i < 9; i++) {
-    if (!board[i]) {
-      board[i] = player;
-      if (checkWinner(board) === player) {
-        board[i] = null;
-        return i;
-      }
-      board[i] = null;
-    }
-  }
+    game.board[index] = player;
+    game.winner = checkWinner(game.board);
+    game.currentPlayer = player === 'X' ? 'O' : 'X';
 
-  // 2. Block opponent win
-  for (let i = 0; i < 9; i++) {
-    if (!board[i]) {
-      board[i] = opponent;
-      if (checkWinner(board) === opponent) {
-        board[i] = null;
-        return i;
-      }
-      board[i] = null;
-    }
-  }
+    game.players.X.emit('updateOnlineGame', {
+      board: game.board,
+      winner: game.winner,
+      currentPlayer: game.currentPlayer
+    });
+    game.players.O.emit('updateOnlineGame', {
+      board: game.board,
+      winner: game.winner,
+      currentPlayer: game.currentPlayer
+    });
+  });
 
-  // 3. Pick center
-  if (!board[4]) return 4;
-
-  // 4. Pick a corner
-  const corners = [0, 2, 6, 8];
-  for (let i of corners) {
-    if (!board[i]) return i;
-  }
-
-  // 5. Pick any free space
-  return board.findIndex(cell => cell === null);
-}
+  socket.on('disconnect', () => {
+    if (waitingPlayer === socket) waitingPlayer = null;
+  });
+});
 
 const PORT = 3002;
-app.listen(PORT, () => console.log(`Server running on http://localhost:${PORT}`));
+server.listen(PORT, () => console.log(`Server running on http://localhost:${PORT}`));
+
+module.exports = {
+  createGame,
+  makeMove,
+  checkWinner,
+  getBestMove
+};
