@@ -28,7 +28,7 @@
             margin-top: 20px;
             position: relative;
             overflow: visible;
-            padding-bottom: 100px; /* Space for the extended diagonals */
+            padding-bottom: 100px;
         }
 
         #status {
@@ -44,7 +44,7 @@
             background-color: #d2b48c;
             border: 2px solid #8b4513;
             box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
-            margin-bottom: 100px; /* Add space below the board for the extended diagonals */
+            margin-bottom: 100px;
         }
 
         .position {
@@ -87,7 +87,6 @@
             color: #3498db;
         }
 
-        /* Board Lines */
         .line {
             position: absolute;
             background-color: #8b4513;
@@ -109,7 +108,7 @@
 
         .diagonal1 {
             width: 2px;
-            height: 141%; /* Approximately sqrt(2) times the width for a perfect corner-to-corner diagonal */
+            height: 141%;
             transform: rotate(45deg);
             transform-origin: top right;
             right: 0;
@@ -118,7 +117,7 @@
 
         .diagonal2 {
             width: 2px;
-            height: 141%; /* Approximately sqrt(2) times the width for a perfect corner-to-corner diagonal */
+            height: 141%;
             transform: rotate(-45deg);
             transform-origin: top left;
             left: 0;
@@ -144,7 +143,6 @@
             border-radius: 10px;
             text-align: center;
             box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
-            /* Position the modal at the bottom of the screen */
             position: absolute;
             bottom: 10%;
             width: 80%;
@@ -219,6 +217,7 @@
         <div id="game-mode-container">
             <button id="vs-player-btn">Play vs Player</button>
             <button id="vs-computer-btn">Play vs Computer</button>
+            <button id="vs-online-btn">Play Online</button>
         </div>
         
         <div class="difficulty-container" style="display: none;">
@@ -234,15 +233,14 @@
     <div id="game-container">
         <div id="status">Starting game...</div>
         <div id="thinking">Computer is thinking...</div>
+        <div id="waiting" style="display: none;">Waiting for opponent...</div>
         
         <div id="board">
-            <!-- Board lines -->
             <div class="line horizontal"></div>
             <div class="line vertical"></div>
             <div class="line diagonal1"></div>
             <div class="line diagonal2"></div>
             
-            <!-- Board positions -->
             <div class="position" id="pos-0" data-position="0" style="left: 20%; top: 20%;"></div>
             <div class="position" id="pos-1" data-position="1" style="left: 50%; top: 20%;"></div>
             <div class="position" id="pos-2" data-position="2" style="left: 80%; top: 20%;"></div>
@@ -265,25 +263,47 @@
         </div>
     </div>
 
+    <script src="/socket.io/socket.io.js"></script>
     <script>
+        // Custom browser logger
+        const logger = {
+            debug: function(message, data = {}) {
+                console.log(`[DEBUG] ${message}`, data);
+            },
+            info: function(message, data = {}) {
+                console.info(`[INFO] ${message}`, data);
+            },
+            warn: function(message, data = {}) {
+                console.warn(`[WARN] ${message}`, data);
+            },
+            error: function(message, data = {}) {
+                console.error(`[ERROR] ${message}`, data);
+            }
+        };
+
         // Game state
         let gameId = null;
         let gameState = null;
         let selectedPiece = null;
         let validMoves = [];
         let vsComputer = false;
+        let vsOnline = false;
         let computerDifficulty = 'medium';
         let computerThinking = false;
+        let socket = null;
+        let playerMark = null;
         
         // DOM elements
         const landing = document.getElementById('landing');
         const gameContainer = document.getElementById('game-container');
         const statusDisplay = document.getElementById('status');
         const thinkingDisplay = document.getElementById('thinking');
+        const waitingDisplay = document.getElementById('waiting');
         const modal = document.getElementById('modal');
         const winnerText = document.getElementById('winner-text');
         const vsPlayerBtn = document.getElementById('vs-player-btn');
         const vsComputerBtn = document.getElementById('vs-computer-btn');
+        const vsOnlineBtn = document.getElementById('vs-online-btn');
         const difficultyContainer = document.querySelector('.difficulty-container');
         const difficultyButtons = document.querySelectorAll('.difficulty-button');
         const backToMenuBtn = document.getElementById('back-to-menu');
@@ -291,17 +311,26 @@
         const newGameBtn = document.getElementById('new-game-btn');
         const positions = document.querySelectorAll('.position');
 
-        // API URL - Change this to your server URL in production
+        // API URL
         const API_URL = 'http://localhost:3002';
 
         // Initialize game
         vsPlayerBtn.addEventListener('click', () => {
             vsComputer = false;
+            vsOnline = false;
             startGame();
         });
         
         vsComputerBtn.addEventListener('click', () => {
+            vsComputer = true;
+            vsOnline = false;
             difficultyContainer.style.display = 'flex';
+        });
+
+        vsOnlineBtn.addEventListener('click', () => {
+            vsComputer = false;
+            vsOnline = true;
+            startOnlineGame();
         });
         
         difficultyButtons.forEach(button => {
@@ -327,7 +356,6 @@
         // Add click handlers to all positions
         positions.forEach(position => {
             position.addEventListener('click', () => {
-                // Don't allow moves when computer is thinking
                 if (computerThinking) return;
                 handlePositionClick(position);
             });
@@ -344,6 +372,13 @@
         // Start a new game
         async function startGame() {
             try {
+                if (vsOnline) {
+                    // For online games, we don't need to make an API call
+                    // The game state is managed by the WebSocket connection
+                    return;
+                }
+
+                logger.info('Starting new game', { vsComputer, computerDifficulty });
                 const response = await fetch(`${API_URL}/start3`, {
                     method: 'POST',
                     headers: {
@@ -355,6 +390,8 @@
                 const data = await response.json();
                 gameId = data.gameId;
                 gameState = data.game;
+                
+                logger.debug('Game started', { gameId, gameState });
                 
                 // Reset UI
                 resetBoard();
@@ -369,13 +406,14 @@
                     makeComputerMove();
                 }
             } catch (error) {
-                console.error('Error starting game:', error);
+                logger.error('Error starting game', { error });
                 alert('Error starting game. Please try again.');
             }
         }
 
         // Reset the board UI
         function resetBoard() {
+            logger.debug('Resetting board');
             positions.forEach(position => {
                 position.textContent = '';
                 position.classList.remove('piece-x', 'piece-o', 'selected', 'valid-move');
@@ -386,11 +424,15 @@
 
         // Update the UI based on game state
         function updateUI() {
+            logger.debug('Updating UI', { gameState, selectedPiece, validMoves });
+            
             // Update status text
             if (gameState.winner) {
                 let winnerMessage = `Player ${gameState.winner} wins!`;
                 if (vsComputer) {
                     winnerMessage = gameState.winner === 'X' ? 'Computer wins!' : 'You win!';
+                } else if (vsOnline) {
+                    winnerMessage = gameState.winner === playerMark ? 'You win!' : 'Opponent wins!';
                 }
                 statusDisplay.textContent = winnerMessage;
                 showWinnerModal(gameState.winner);
@@ -404,6 +446,12 @@
                     } else {
                         statusMessage = `Phase: ${phase} | Your turn`;
                     }
+                } else if (vsOnline) {
+                    if (gameState.currentPlayer === playerMark) {
+                        statusMessage = `Phase: ${phase} | Your turn`;
+                    } else {
+                        statusMessage = `Phase: ${phase} | Opponent's turn`;
+                    }
                 }
                 
                 statusDisplay.textContent = statusMessage;
@@ -415,7 +463,7 @@
                 const piece = gameState.board[pos];
                 
                 position.textContent = piece || '';
-                position.classList.remove('piece-x', 'piece-o');
+                position.classList.remove('piece-x', 'piece-o', 'selected', 'valid-move');
                 
                 if (piece === 'X') {
                     position.classList.add('piece-x');
@@ -425,44 +473,116 @@
             });
             
             // Show valid moves if a piece is selected
-            highlightValidMoves();
+            if (selectedPiece !== null) {
+                // Mark the selected piece
+                document.getElementById(`pos-${selectedPiece}`).classList.add('selected');
+                
+                // Highlight valid moves
+                validMoves.forEach(move => {
+                    document.getElementById(`pos-${move}`).classList.add('valid-move');
+                });
+            }
         }
 
         // Handle position click
         async function handlePositionClick(position) {
-            if (gameState.winner) return;
-            if (vsComputer && gameState.currentPlayer === 'X') return; // Can't play during computer's turn
+            if (!gameState) {
+                logger.error('Game state is not initialized');
+                return;
+            }
             
             const positionIndex = position.dataset.position;
             
+            logger.debug('Position clicked', { 
+                position: positionIndex,
+                gameState: {
+                    phase: gameState.phase,
+                    currentPlayer: gameState.currentPlayer,
+                    selectedPiece: selectedPiece,
+                    validMoves: validMoves
+                }
+            });
+            
+            if (gameState.winner) {
+                logger.debug('Game already has a winner');
+                return;
+            }
+            if (vsComputer && gameState.currentPlayer === 'X') {
+                logger.debug('Computer\'s turn');
+                return;
+            }
+            if (vsOnline && gameState.currentPlayer !== playerMark) {
+                logger.debug('Not your turn');
+                return;
+            }
+            
             try {
                 if (gameState.phase === 'placing') {
-                    await placePiece(positionIndex);
-                    // After player's move, make computer move if playing vs computer
-                    if (vsComputer && !gameState.winner && gameState.currentPlayer === 'X') {
-                        makeComputerMove();
-                    }
-                } else { // moving phase
-                    const hasPiece = gameState.board[positionIndex] !== null;
-                    const isCurrentPlayerPiece = gameState.board[positionIndex] === gameState.currentPlayer;
-                    
-                    if (selectedPiece === null && hasPiece && isCurrentPlayerPiece) {
-                        // Select piece to move
-                        await selectPiece(positionIndex);
-                    } else if (selectedPiece !== null && validMoves.includes(Number(positionIndex))) {
-                        // Move the selected piece
-                        await movePiece(selectedPiece, positionIndex);
-                        // After player's move, make computer move if playing vs computer
+                    logger.debug('In placing phase');
+                    if (vsOnline) {
+                        socket.emit('placeOnline3', { gameId, position: positionIndex });
+                    } else {
+                        await placePiece(positionIndex);
                         if (vsComputer && !gameState.winner && gameState.currentPlayer === 'X') {
                             makeComputerMove();
                         }
+                    }
+                } else { // moving phase
+                    logger.debug('In moving phase');
+                    const hasPiece = gameState.board[positionIndex] !== null;
+                    const isCurrentPlayerPiece = gameState.board[positionIndex] === gameState.currentPlayer;
+                    
+                    logger.debug('Piece check', { 
+                        hasPiece, 
+                        isCurrentPlayerPiece, 
+                        positionIndex,
+                        currentPlayer: gameState.currentPlayer,
+                        pieceAtPosition: gameState.board[positionIndex]
+                    });
+                    
+                    if (selectedPiece === null && hasPiece && isCurrentPlayerPiece) {
+                        logger.debug('Selecting piece', { position: positionIndex });
+                        if (vsOnline) {
+                            socket.emit('selectOnline3', { gameId, position: positionIndex });
+                        } else {
+                            await selectPiece(positionIndex);
+                        }
+                    } else if (selectedPiece !== null && validMoves.includes(Number(positionIndex))) {
+                        logger.debug('Moving piece', { 
+                            from: selectedPiece, 
+                            to: positionIndex 
+                        });
+                        if (vsOnline) {
+                            socket.emit('moveOnline3', { 
+                                gameId, 
+                                fromPosition: selectedPiece, 
+                                toPosition: positionIndex 
+                            });
+                            selectedPiece = null;
+                            validMoves = [];
+                        } else {
+                            await movePiece(selectedPiece, positionIndex);
+                            if (vsComputer && !gameState.winner && gameState.currentPlayer === 'X') {
+                                makeComputerMove();
+                            }
+                        }
                     } else if (hasPiece && isCurrentPlayerPiece) {
-                        // Change selection to another piece
-                        await selectPiece(positionIndex);
+                        logger.debug('Changing selection', { position: positionIndex });
+                        if (vsOnline) {
+                            socket.emit('selectOnline3', { gameId, position: positionIndex });
+                        } else {
+                            await selectPiece(positionIndex);
+                        }
+                    } else {
+                        logger.debug('Invalid move attempt', {
+                            selectedPiece,
+                            clickedPosition: positionIndex,
+                            validMoves
+                        });
                     }
                 }
             } catch (error) {
-                console.error('Error:', error);
+                logger.error('Error in handlePositionClick', { error });
                 if (error.message) {
                     alert(error.message);
                 }
@@ -476,7 +596,8 @@
             computerThinking = true;
             thinkingDisplay.style.display = 'block';
             
-            // Add a small delay to make the computer "think"
+            logger.debug('Computer thinking', { difficulty: computerDifficulty });
+            
             setTimeout(async () => {
                 try {
                     const response = await fetch(`${API_URL}/computer-move`, {
@@ -493,24 +614,26 @@
                     const data = await response.json();
                     
                     if (response.ok) {
+                        logger.debug('Computer move completed', { gameState: data.game });
                         gameState = data.game;
                         updateUI();
                     } else {
                         throw new Error(data.error);
                     }
                 } catch (error) {
-                    console.error('Error making computer move:', error);
+                    logger.error('Error making computer move', { error });
                     alert('Error with computer move. Please try again.');
                 } finally {
                     computerThinking = false;
                     thinkingDisplay.style.display = 'none';
                 }
-            }, 700); // Delay for 700ms to give a visual indication of "thinking"
+            }, 700);
         }
 
         // Place a piece during the placing phase
         async function placePiece(position) {
             try {
+                logger.debug('Placing piece', { position });
                 const response = await fetch(`${API_URL}/place`, {
                     method: 'POST',
                     headers: {
@@ -522,12 +645,14 @@
                 const data = await response.json();
                 
                 if (response.ok) {
+                    logger.debug('Piece placed successfully', { gameState: data.game });
                     gameState = data.game;
                     updateUI();
                 } else {
                     throw new Error(data.error);
                 }
             } catch (error) {
+                logger.error('Error placing piece', { error });
                 throw error;
             }
         }
@@ -535,6 +660,7 @@
         // Select a piece to move
         async function selectPiece(position) {
             try {
+                logger.debug('Selecting piece', { position });
                 const response = await fetch(`${API_URL}/select`, {
                     method: 'POST',
                     headers: {
@@ -546,6 +672,11 @@
                 const data = await response.json();
                 
                 if (response.ok) {
+                    logger.debug('Piece selected successfully', { 
+                        position,
+                        validMoves: data.validMoves,
+                        gameState: data.game
+                    });
                     gameState = data.game;
                     selectedPiece = Number(position);
                     validMoves = data.validMoves;
@@ -557,11 +688,14 @@
                     document.getElementById(`pos-${position}`).classList.add('selected');
                     
                     // Highlight valid moves
-                    highlightValidMoves();
+                    validMoves.forEach(move => {
+                        document.getElementById(`pos-${move}`).classList.add('valid-move');
+                    });
                 } else {
                     throw new Error(data.error);
                 }
             } catch (error) {
+                logger.error('Error selecting piece', { error });
                 throw error;
             }
         }
@@ -569,6 +703,7 @@
         // Move a piece
         async function movePiece(fromPosition, toPosition) {
             try {
+                logger.debug('Moving piece', { fromPosition, toPosition });
                 const response = await fetch(`${API_URL}/move3`, {
                     method: 'POST',
                     headers: {
@@ -580,6 +715,7 @@
                 const data = await response.json();
                 
                 if (response.ok) {
+                    logger.debug('Piece moved successfully', { gameState: data.game });
                     gameState = data.game;
                     selectedPiece = null;
                     validMoves = [];
@@ -592,19 +728,9 @@
                     throw new Error(data.error);
                 }
             } catch (error) {
+                logger.error('Error moving piece', { error });
                 throw error;
             }
-        }
-
-        // Highlight valid moves
-        function highlightValidMoves() {
-            // Clear previous valid move highlights
-            positions.forEach(p => p.classList.remove('valid-move'));
-            
-            // Add highlight for valid moves
-            validMoves.forEach(move => {
-                document.getElementById(`pos-${move}`).classList.add('valid-move');
-            });
         }
 
         // Show the winner modal
@@ -615,6 +741,60 @@
             }
             winnerText.textContent = winnerMessage;
             modal.style.display = 'flex';
+            logger.info('Game ended', { winner });
+        }
+
+        // Start an online game
+        function startOnlineGame() {
+            logger.info('Starting online game');
+            socket = io(API_URL);
+            
+            socket.on('connect', () => {
+                logger.info('Connected to server');
+                socket.emit('joinOnlineGame3');
+                waitingDisplay.style.display = 'block';
+                landing.style.display = 'none';
+                gameContainer.style.display = 'flex';
+            });
+
+            socket.on('startOnlineGame3', ({ gameId: newGameId, mark }) => {
+                logger.info('Online game started', { gameId: newGameId, mark });
+                gameId = newGameId;
+                playerMark = mark;
+                waitingDisplay.style.display = 'none';
+                
+                // Initialize game state
+                gameState = {
+                    board: Array(9).fill(null),
+                    currentPlayer: 'X',
+                    phase: 'placing',
+                    piecesPlaced: { X: 0, O: 0 },
+                    selectedPiece: null,
+                    winner: null
+                };
+                
+                // Reset UI
+                resetBoard();
+                updateUI();
+            });
+
+            socket.on('updateOnlineGame3', ({ game, validMoves: newValidMoves }) => {
+                logger.debug('Game state updated', { game, validMoves: newValidMoves });
+                gameState = game;
+                if (newValidMoves) {
+                    validMoves = newValidMoves;
+                    selectedPiece = game.selectedPiece;
+                } else {
+                    validMoves = [];
+                    selectedPiece = null;
+                }
+                updateUI();
+            });
+
+            socket.on('disconnect', () => {
+                logger.warn('Disconnected from server');
+                alert('Disconnected from server. Please refresh the page to reconnect.');
+            });
         }
     </script>
 </body>
